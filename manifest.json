@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "QuizGPT (Gemini Edition)",
+  "version": "2.0.0",
+  "description": "Automatically answers Kahoot! questions using Gemini AI. No sign-in, no limits.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.kahoot.it/*",
+        "https://kahoot.it/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["scripts/injected.js"],
+      "matches": ["https://*.kahoot.it/*", "https://kahoot.it/*"]
+    }
+  ]
+}
