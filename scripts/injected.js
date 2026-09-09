@@ -1,10 +1,10 @@
 (() => {
 // Content script can inject this more than once (all_frames / re-inject). Guard before any const.
-if (window.__quizgptInjected) {
+if (window.__kahoothackInjected) {
     console.log('[AutoClick] already injected — skip');
     return;
 }
-window.__quizgptInjected = true;
+window.__kahoothackInjected = true;
 
 console.log("[Kahoot AutoClick] Inject started");
 
@@ -68,8 +68,8 @@ function handleParsedContent(content, dataId) {
         clearGetReadyFallback();
         window.__kahootSoftReconnect = false;
         clearExpectingReconnect();
-        if (window.__quizgptAnsweredQ !== questionIndex) {
-            window.__quizgptAnsweredQ = null;
+        if (window.__kahoothackAnsweredQ !== questionIndex) {
+            window.__kahoothackAnsweredQ = null;
         }
         window.kahootQuestionIndex = questionIndex;
         persistLastQuestionIndex(questionIndex);
@@ -105,29 +105,29 @@ function handleParsedContent(content, dataId) {
 
 function persistLastQuestionIndex(questionIndex) {
     try {
-        const prev = JSON.parse(sessionStorage.getItem('quizgpt_quiz_meta') || '{}');
-        sessionStorage.setItem('quizgpt_quiz_meta', JSON.stringify({
+        const prev = JSON.parse(sessionStorage.getItem('kahoothack_quiz_meta') || '{}');
+        sessionStorage.setItem('kahoothack_quiz_meta', JSON.stringify({
             lastQuestionIndex: questionIndex,
             gameid: window.kahootGameId || prev.gameid || null,
-            pendingAnswer: prev.pendingAnswer || window.__quizgptPendingAnswer || null
+            pendingAnswer: prev.pendingAnswer || window.__kahoothackPendingAnswer || null
         }));
     } catch (_) { /* ignore */ }
 }
 
 function isExpectingReconnect() {
     try {
-        return sessionStorage.getItem('quizgpt_expect_reconnect') === '1';
+        return sessionStorage.getItem('kahoothack_expect_reconnect') === '1';
     } catch (_) {
         return false;
     }
 }
 
 function setExpectingReconnect() {
-    try { sessionStorage.setItem('quizgpt_expect_reconnect', '1'); } catch (_) { /* ignore */ }
+    try { sessionStorage.setItem('kahoothack_expect_reconnect', '1'); } catch (_) { /* ignore */ }
 }
 
 function clearExpectingReconnect() {
-    try { sessionStorage.removeItem('quizgpt_expect_reconnect'); } catch (_) { /* ignore */ }
+    try { sessionStorage.removeItem('kahoothack_expect_reconnect'); } catch (_) { /* ignore */ }
 }
 
 function emitAnswerForQuestionIndex(questionIndex, reason) {
@@ -176,7 +176,7 @@ function scheduleGetReadyFallback(questionIndex) {
 
 // Restore gameid for reconnect UX
 try {
-    const raw = sessionStorage.getItem('quizgpt_quiz_meta');
+    const raw = sessionStorage.getItem('kahoothack_quiz_meta');
     if (raw) {
         const data = JSON.parse(raw);
         if (data.gameid && !window.kahootGameId) {
@@ -209,14 +209,14 @@ window.WebSocket = function (url, protocols) {
                     if (prevClient && prevClient !== item.clientId) {
                         console.log("[AutoClick] clientId rotated:", item.clientId);
                         // New CometD session after socket swap — resend pending answer with new clientId
-                        if (window.__quizgptPendingAnswer) {
-                            window.__quizgptAnsweredQ = null;
+                        if (window.__kahoothackPendingAnswer) {
+                            window.__kahoothackAnsweredQ = null;
                             schedulePendingAnswerResend();
                         }
                     } else if (!prevClient) {
                         console.log("[AutoClick] clientId found:", window.kahootClientId);
-                        if (window.__quizgptAwaitingResend) {
-                            window.__quizgptAwaitingResend = false;
+                        if (window.__kahoothackAwaitingResend) {
+                            window.__kahoothackAwaitingResend = false;
                             schedulePendingAnswerResend();
                         }
                     }
@@ -235,9 +235,9 @@ window.WebSocket = function (url, protocols) {
 
                         if (isHardNewGame) {
                             window.kahootQuestionIndex = 0;
-                            window.__quizgptAnsweredQ = null;
-                            window.__quizgptPendingAnswer = null;
-                            try { sessionStorage.removeItem('quizgpt_quiz_meta'); } catch (_) { /* ignore */ }
+                            window.__kahoothackAnsweredQ = null;
+                            window.__kahoothackPendingAnswer = null;
+                            try { sessionStorage.removeItem('kahoothack_quiz_meta'); } catch (_) { /* ignore */ }
                             console.log("[AutoClick] New game detected, gameid:", incomingId);
                             window.dispatchEvent(new CustomEvent("kahootGameReset", {
                                 detail: { gameid: incomingId, soft: false }
@@ -245,7 +245,7 @@ window.WebSocket = function (url, protocols) {
                         } else if (isSoftReconnect) {
                             console.log("[AutoClick] Reconnected to gameid:", incomingId);
                             window.__kahootSoftReconnect = true;
-                            window.__quizgptAnsweredQ = null;
+                            window.__kahoothackAnsweredQ = null;
                             window.dispatchEvent(new CustomEvent("kahootGameReset", {
                                 detail: { gameid: incomingId, soft: true }
                             }));
@@ -254,7 +254,7 @@ window.WebSocket = function (url, protocols) {
                                     return window.__kahootLastQuestionIndex;
                                 }
                                 try {
-                                    const raw = sessionStorage.getItem('quizgpt_quiz_meta');
+                                    const raw = sessionStorage.getItem('kahoothack_quiz_meta');
                                     const n = raw ? JSON.parse(raw).lastQuestionIndex : null;
                                     return typeof n === 'number' ? n : null;
                                 } catch (_) { return null; }
@@ -265,8 +265,8 @@ window.WebSocket = function (url, protocols) {
                             }
                             schedulePendingAnswerResend();
                         }
-                    } else if (window.__quizgptAwaitingResend && window.kahootClientId) {
-                        window.__quizgptAwaitingResend = false;
+                    } else if (window.__kahoothackAwaitingResend && window.kahootClientId) {
+                        window.__kahoothackAwaitingResend = false;
                         schedulePendingAnswerResend();
                     }
                 }
@@ -295,9 +295,9 @@ window.WebSocket = function (url, protocols) {
 
     ws.addEventListener("open", () => {
         console.log("[AutoClick] WebSocket connection established");
-        if (window.__quizgptPendingAnswer) {
-            window.__quizgptAwaitingResend = true;
-            window.__quizgptAnsweredQ = null;
+        if (window.__kahoothackPendingAnswer) {
+            window.__kahoothackAwaitingResend = true;
+            window.__kahoothackAnsweredQ = null;
             // clientId usually arrives with the first message on this socket
             schedulePendingAnswerResend();
         }
@@ -307,13 +307,13 @@ window.WebSocket = function (url, protocols) {
         console.log("[AutoClick] WebSocket connection closed");
         setExpectingReconnect();
         try {
-            const prev = JSON.parse(sessionStorage.getItem('quizgpt_quiz_meta') || '{}');
-            sessionStorage.setItem('quizgpt_quiz_meta', JSON.stringify({
+            const prev = JSON.parse(sessionStorage.getItem('kahoothack_quiz_meta') || '{}');
+            sessionStorage.setItem('kahoothack_quiz_meta', JSON.stringify({
                 lastQuestionIndex: typeof window.kahootQuestionIndex === 'number'
                     ? window.kahootQuestionIndex
                     : prev.lastQuestionIndex,
                 gameid: window.kahootGameId || prev.gameid || null,
-                pendingAnswer: window.__quizgptPendingAnswer || prev.pendingAnswer || null
+                pendingAnswer: window.__kahoothackPendingAnswer || prev.pendingAnswer || null
             }));
         } catch (_) { /* ignore */ }
         // Keep gameid/clientId — needed to resend on the next socket. Only drop the dead WS handle.
@@ -321,7 +321,7 @@ window.WebSocket = function (url, protocols) {
             window.__kahootWS = null;
         }
         window.__kahootLastQuestionIndex = window.kahootQuestionIndex;
-        window.__quizgptAnsweredQ = null;
+        window.__kahoothackAnsweredQ = null;
         clearGetReadyFallback();
     });
 
@@ -371,8 +371,8 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
     }
 
     // One WS submit per question (prevents multi-frame postMessage spam)
-    if (window.__quizgptAnsweredQ === questionIndex
-        && Date.now() - (window.__quizgptAnsweredAt || 0) < 8000) {
+    if (window.__kahoothackAnsweredQ === questionIndex
+        && Date.now() - (window.__kahoothackAnsweredAt || 0) < 8000) {
         console.log('[AutoClick] Already submitted for questionIndex', questionIndex);
         return;
     }
@@ -400,9 +400,9 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
 
     if (window.__kahootWS.readyState === 1) {
         window.__kahootWS.send(JSON.stringify(payload));
-        window.__quizgptAnsweredQ = questionIndex;
-        window.__quizgptAnsweredAt = Date.now();
-        window.__quizgptPendingAnswer = {
+        window.__kahoothackAnsweredQ = questionIndex;
+        window.__kahoothackAnsweredAt = Date.now();
+        window.__kahoothackPendingAnswer = {
             choice,
             questionIndex,
             gameid,
@@ -417,7 +417,7 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
         });
     } else {
         console.error("[AutoClick] WebSocket not open.");
-        window.__quizgptPendingAnswer = {
+        window.__kahoothackPendingAnswer = {
             choice,
             questionIndex,
             gameid,
@@ -427,39 +427,39 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
 };
 
 function schedulePendingAnswerResend() {
-    const pending = window.__quizgptPendingAnswer;
+    const pending = window.__kahoothackPendingAnswer;
     if (!pending || typeof pending.choice !== 'number' || typeof pending.questionIndex !== 'number') return;
     if (Date.now() - (pending.at || 0) > 20000) {
-        window.__quizgptPendingAnswer = null;
-        window.__quizgptAwaitingResend = false;
+        window.__kahoothackPendingAnswer = null;
+        window.__kahoothackAwaitingResend = false;
         return;
     }
 
     // Avoid stacking multiple resend loops
-    const token = (window.__quizgptResendToken = (window.__quizgptResendToken || 0) + 1);
+    const token = (window.__kahoothackResendToken = (window.__kahoothackResendToken || 0) + 1);
     let tries = 0;
     const tick = () => {
-        if (token !== window.__quizgptResendToken) return;
+        if (token !== window.__kahoothackResendToken) return;
         tries += 1;
         if (!window.__kahootWS || window.__kahootWS.readyState !== 1 || !window.kahootClientId || !window.kahootGameId) {
             if (tries < 30) setTimeout(tick, 200);
             return;
         }
         if (pending.gameid != null && String(pending.gameid) !== String(window.kahootGameId)) {
-            window.__quizgptPendingAnswer = null;
-            window.__quizgptAwaitingResend = false;
+            window.__kahoothackPendingAnswer = null;
+            window.__kahoothackAwaitingResend = false;
             return;
         }
         console.log('[AutoClick] Resending answer after reconnect', pending, 'clientId', window.kahootClientId);
         pending.resendCount = (pending.resendCount || 0) + 1;
         if (pending.resendCount > 2) {
             console.log('[AutoClick] Giving up resend after', pending.resendCount, 'tries');
-            window.__quizgptPendingAnswer = null;
-            window.__quizgptAwaitingResend = false;
+            window.__kahoothackPendingAnswer = null;
+            window.__kahoothackAwaitingResend = false;
             return;
         }
-        window.__quizgptAnsweredQ = null;
-        window.__quizgptAwaitingResend = false;
+        window.__kahoothackAnsweredQ = null;
+        window.__kahoothackAwaitingResend = false;
         window.sendAutoClickMessage(pending.choice, pending.questionIndex);
         pending.at = Date.now();
     };
@@ -482,16 +482,16 @@ window.addEventListener("autoClickAnswer", function (event) {
     window.sendAutoClickMessage(choice, questionIndex);
 });
 
-function handleQuizgptPageMessage(data) {
-    if (!data || data.source !== 'quizgpt') return false;
+function handlekahoothackPageMessage(data) {
+    if (!data || data.source !== 'kahoothack') return false;
     if (data.type === 'autoClickAnswer') {
         console.log('[AutoClick] Bridged click:', data.choice, 'q', data.questionIndex);
         window.sendAutoClickMessage(data.choice, data.questionIndex);
         return true;
     }
     if (data.type === 'clearAnsweredQuestion') {
-        if (typeof data.questionIndex === 'number' && window.__quizgptAnsweredQ === data.questionIndex) {
-            window.__quizgptAnsweredQ = null;
+        if (typeof data.questionIndex === 'number' && window.__kahoothackAnsweredQ === data.questionIndex) {
+            window.__kahoothackAnsweredQ = null;
             console.log('[AutoClick] Cleared answered lock for questionIndex', data.questionIndex);
         }
         return true;
@@ -500,7 +500,7 @@ function handleQuizgptPageMessage(data) {
         let idx = typeof window.kahootQuestionIndex === 'number' ? window.kahootQuestionIndex : null;
         if (typeof idx !== 'number') {
             try {
-                const raw = sessionStorage.getItem('quizgpt_quiz_meta');
+                const raw = sessionStorage.getItem('kahoothack_quiz_meta');
                 const n = raw ? JSON.parse(raw).lastQuestionIndex : null;
                 if (typeof n === 'number') idx = n;
             } catch (_) { /* ignore */ }
@@ -519,16 +519,16 @@ function handleQuizgptPageMessage(data) {
 
 // Content-script → page bridge (CustomEvent does not cross isolated worlds)
 window.addEventListener('message', function (event) {
-    handleQuizgptPageMessage(event.data);
+    handlekahoothackPageMessage(event.data);
 });
 
 // DOM attribute bridge (works even when postMessage frame targeting fails)
 (function watchClickBridge() {
     const ensure = () => {
-        let bridge = document.getElementById('quizgpt-click-bridge');
+        let bridge = document.getElementById('kahoothack-click-bridge');
         if (!bridge) {
             bridge = document.createElement('div');
-            bridge.id = 'quizgpt-click-bridge';
+            bridge.id = 'kahoothack-click-bridge';
             bridge.style.display = 'none';
             (document.documentElement || document.body || document).appendChild(bridge);
         }
@@ -543,7 +543,7 @@ window.addEventListener('message', function (event) {
                 if (!raw) return;
                 bridge.removeAttribute('data-payload');
                 try {
-                    handleQuizgptPageMessage(JSON.parse(raw));
+                    handlekahoothackPageMessage(JSON.parse(raw));
                 } catch (e) {
                     console.warn('[AutoClick] bridge parse error', e);
                 }
@@ -558,4 +558,4 @@ window.addEventListener('message', function (event) {
     else document.addEventListener('DOMContentLoaded', run);
 })();
 
-})(); // end quizgpt inject guard
+})(); // end kahoothack inject guard

@@ -3,8 +3,8 @@
 (function injectPageHook() {
     try {
         const root = document.documentElement;
-        if (root && root.dataset.quizgptHook === '1') return;
-        if (root) root.dataset.quizgptHook = '1';
+        if (root && root.dataset.kahoothackHook === '1') return;
+        if (root) root.dataset.kahoothackHook = '1';
     } catch (_) { /* ignore */ }
 
     const script = document.createElement('script');
@@ -17,8 +17,8 @@
 })();
 
 let currentQuestion = null;
-const QGPT_PANEL_ID = 'quizgpt-panel';
-const QGPT_STYLE_ID = 'quizgpt-panel-styles';
+const QGPT_PANEL_ID = 'kahoothack-panel';
+const QGPT_STYLE_ID = 'kahoothack-panel-styles';
 
 const qgptState = {
     mounted: false,
@@ -248,13 +248,13 @@ function mountPanel() {
     root.setAttribute('data-collapsed', qgptState.collapsed ? 'true' : 'false');
 
     root.innerHTML = `
-        <div class="qgpt-pill" role="button" title="Expand QuizGPT">
-            <span>⚡ QuizGPT</span>
+        <div class="qgpt-pill" role="button" title="Expand kahoothack">
+            <span>⚡ kahoothack</span>
         </div>
-        <div class="qgpt-card" role="region" aria-label="QuizGPT panel">
+        <div class="qgpt-card" role="region" aria-label="kahoothack panel">
             <div class="qgpt-header">
-                <span class="qgpt-title">⚡ QuizGPT</span>
-                <button type="button" class="qgpt-icon-btn" data-qgpt="collapse" title="Collapse" aria-label="Collapse QuizGPT">
+                <span class="qgpt-title">⚡ kahoothack</span>
+                <button type="button" class="qgpt-icon-btn" data-qgpt="collapse" title="Collapse" aria-label="Collapse kahoothack">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="pointer-events:none"><path d="M5 12h14"/></svg>
                 </button>
             </div>
@@ -341,9 +341,9 @@ function mountPanel() {
     qgptState.mounted = true;
     renderPanel();
     // Load saved settings
-    chrome.storage.sync.get(['highlightOption', 'autoClickOption', 'silentMode', 'answerDelay', 'quizgptPanelCollapsed'], (data) => {
-        if (typeof data.quizgptPanelCollapsed === 'boolean') {
-            qgptState.collapsed = data.quizgptPanelCollapsed;
+    chrome.storage.sync.get(['highlightOption', 'autoClickOption', 'silentMode', 'answerDelay', 'kahoothackPanelCollapsed'], (data) => {
+        if (typeof data.kahoothackPanelCollapsed === 'boolean') {
+            qgptState.collapsed = data.kahoothackPanelCollapsed;
             root.setAttribute('data-collapsed', qgptState.collapsed ? 'true' : 'false');
         }
         qgptState.settings.highlight = data.highlightOption !== false;
@@ -365,7 +365,7 @@ function setCollapsed(collapsed) {
     qgptState.collapsed = !!collapsed;
     const root = document.getElementById(QGPT_PANEL_ID);
     if (root) root.setAttribute('data-collapsed', qgptState.collapsed ? 'true' : 'false');
-    chrome.storage.local.set({ quizgptPanelCollapsed: qgptState.collapsed }).catch(() => {});
+    chrome.storage.local.set({ kahoothackPanelCollapsed: qgptState.collapsed }).catch(() => {});
 }
 
 function renderPanel() {
@@ -422,7 +422,7 @@ function deriveStatusTone(message) {
     return 'idle';
 }
 
-// ---------- Question detection & Gemini integration ----------
+// ---------- Question detection & deepseek integration ----------
 let lastSentQuestionHash = null;
 let lastQuestionPayload = null;
 let lastSentQuestionIndex = null;
@@ -534,7 +534,7 @@ window.addEventListener('kahootQuestionParsed', (event) => {
         else if (isNewIndex) lastSentHadText = false;
         updateStatus(hasText ? 'Resolving answer...' : 'Waiting for question text...');
 
-        // Send to background for Gemini processing
+        // Send to background for deepseek processing
         chrome.runtime.sendMessage({
             action: 'processQuestion',
             question: question
@@ -578,7 +578,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }, 40, request.choiceIndex);
         sendResponse({ success: true });
     } else if (request.action === "clearAnsweredQuestion") {
-        const msg = { source: 'quizgpt', type: 'clearAnsweredQuestion', questionIndex: request.questionIndex };
+        const msg = { source: 'kahoothack', type: 'clearAnsweredQuestion', questionIndex: request.questionIndex };
         try { window.postMessage(msg, '*'); } catch (_) {}
         try { if (window.top) window.top.postMessage(msg, '*'); } catch (_) {}
         sendResponse({ ok: true });
@@ -595,9 +595,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // ---------- Highlight & Auto‑click logic (unchanged) ----------
 function applyHighlightStyles(correctElement) {
-    if (correctElement.querySelector('.quizgpt-checkmark')) return;
+    if (correctElement.querySelector('.kahoothack-checkmark')) return;
     const checkmark = document.createElement('span');
-    checkmark.className = 'quizgpt-checkmark';
+    checkmark.className = 'kahoothack-checkmark';
     checkmark.textContent = '✅';
     checkmark.setAttribute('aria-hidden', 'true');
     checkmark.style.cssText = [
@@ -620,7 +620,7 @@ function dispatchAutoClick(choiceIndex, questionIndex) {
         console.warn('[Content] Auto-click aborted — invalid choiceIndex', choiceIndex);
         return;
     }
-    const msg = { source: 'quizgpt', type: 'autoClickAnswer', choice, questionIndex: qIndex, t: Date.now() };
+    const msg = { source: 'kahoothack', type: 'autoClickAnswer', choice, questionIndex: qIndex, t: Date.now() };
     console.log('[Content] Auto-click by index:', choice, 'questionIndex:', qIndex);
 
     const targets = new Set([window]);
@@ -630,10 +630,10 @@ function dispatchAutoClick(choiceIndex, questionIndex) {
 
     // DOM bridge fallback
     try {
-        let bridge = document.getElementById('quizgpt-click-bridge');
+        let bridge = document.getElementById('kahoothack-click-bridge');
         if (!bridge) {
             bridge = document.createElement('div');
-            bridge.id = 'quizgpt-click-bridge';
+            bridge.id = 'kahoothack-click-bridge';
             bridge.style.display = 'none';
             (document.documentElement || document.body).appendChild(bridge);
         }
@@ -788,11 +788,11 @@ function waitAndAutoClick(element, answerElements, options, retries = 20) {
 }
 
 function showTimerOverlay(duration, callback) {
-    const existingTimer = document.getElementById('quizgpt-timer-overlay');
+    const existingTimer = document.getElementById('kahoothack-timer-overlay');
     if (existingTimer) existingTimer.remove();
 
     const timerOverlay = document.createElement('div');
-    timerOverlay.id = 'quizgpt-timer-overlay';
+    timerOverlay.id = 'kahoothack-timer-overlay';
     timerOverlay.style.cssText = `
         position: fixed; top: 20px; right: 20px;
         background: linear-gradient(135deg, rgba(138,43,226,0.95), rgba(218,112,214,0.95));
@@ -822,13 +822,13 @@ function showTimerOverlay(duration, callback) {
     timerOverlay.appendChild(countdownDisplay);
     timerOverlay.appendChild(progressBar);
 
-    if (!document.querySelector('#quizgpt-timer-styles')) {
+    if (!document.querySelector('#kahoothack-timer-styles')) {
         const timerStyles = document.createElement('style');
-        timerStyles.id = 'quizgpt-timer-styles';
+        timerStyles.id = 'kahoothack-timer-styles';
         timerStyles.textContent = `
             @keyframes slideIn { from { transform: translateX(100%); opacity:0; } to { transform: translateX(0); opacity:1; } }
             @keyframes slideOut { from { transform: translateX(0); opacity:1; } to { transform: translateX(100%); opacity:0; } }
-            #quizgpt-timer-overlay:hover { transform: scale(1.05); box-shadow: 0 6px 25px rgba(0,0,0,0.4); }
+            #kahoothack-timer-overlay:hover { transform: scale(1.05); box-shadow: 0 6px 25px rgba(0,0,0,0.4); }
         `;
         document.head.appendChild(timerStyles);
     }

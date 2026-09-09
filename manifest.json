@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "QuizGPT (Gemini Edition)",
+  "name": "Kahoot Hack",
   "version": "2.0.0",
-  "description": "Automatically answers Kahoot! questions using Gemini AI. No sign-in, no limits.",
+  "description": "Automatically answers Kahoot! questions using DeepSeek AI. No sign-in, no limits.",
   "permissions": [
     "storage",
     "tabs",

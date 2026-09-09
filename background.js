@@ -99,9 +99,9 @@ async function callOpenRouter(prompt) {
   return text.trim();
 }
 
-function parseAnswer(geminiOutput, choices) {
+function parseAnswer(deepseekOutput, choices) {
   // Try "A. text"
-  const match = geminiOutput.match(/^([A-Z])[\.\s]+(.+)/);
+  const match = deepseekOutput.match(/^([A-Z])[\.\s]+(.+)/);
   if (match) {
     const index = match[1].charCodeAt(0) - 65;
     if (index >= 0 && index < choices.length) {
@@ -110,7 +110,7 @@ function parseAnswer(geminiOutput, choices) {
   }
 
   // Fallback: find any letter
-  const letters = geminiOutput.match(/[A-Z]/g) || [];
+  const letters = deepseekOutput.match(/[A-Z]/g) || [];
   for (const letter of letters) {
     const idx = letter.charCodeAt(0) - 65;
     if (idx >= 0 && idx < choices.length) {
@@ -120,7 +120,7 @@ function parseAnswer(geminiOutput, choices) {
 
   // Last resort: match text
   for (let i = 0; i < choices.length; i++) {
-    if (geminiOutput.toLowerCase().includes(choices[i].toLowerCase())) {
+    if (deepseekOutput.toLowerCase().includes(choices[i].toLowerCase())) {
       return { choiceIndex: i, answerText: choices[i] };
     }
   }
