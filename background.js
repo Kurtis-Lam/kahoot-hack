@@ -1,6 +1,12 @@
 // background.js – OpenRouter API with DeepSeek vision model
 
-const OPENROUTER_API_KEY = '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';
+const API_KEYS = [
+  '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',
+  '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',
+  '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'
+];
+let currentKeyIndex = 0;
+
 const MODEL = 'deepseek/deepseek-v4-flash-vision-exp'; // latest vision model
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -35,19 +41,19 @@ async function handleProcessQuestion(request, sender, sendResponse) {
     console.log('[Background] Parsed answer:', { choiceIndex, answerText });
 
     chrome.tabs.sendMessage(
-    sender.tab.id,
-    {
+      sender.tab.id,
+      {
         action: 'highlightAnswer',
         answer: answerText,
         choiceIndex: choiceIndex,
         questionIndex: question.questionIndex
-    },
-    (response) => {
+      },
+      (response) => {
         if (chrome.runtime.lastError) {
-        console.warn('[Background] sendMessage error:', chrome.runtime.lastError.message);
+          console.warn('[Background] sendMessage error:', chrome.runtime.lastError.message);
         }
         sendResponse({ success: true, choiceIndex, answerText });
-    }
+      }
     );
   } catch (error) {
     console.error('[Background] OpenRouter error:', error);
@@ -67,6 +73,12 @@ ${choiceList}
 Correct answer:`;
 }
 
+function getNextApiKey() {
+  const key = API_KEYS[currentKeyIndex];
+  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+  return key;
+}
+
 async function callOpenRouter(prompt) {
   const payload = {
     model: MODEL,
@@ -80,23 +92,37 @@ async function callOpenRouter(prompt) {
     temperature: 0.1,
   };
 
-  const response = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  let attempts = 0;
+  const maxAttempts = API_KEYS.length;
 
-  if (!response.ok) {
+  while (attempts < maxAttempts) {
+    const apiKey = getNextApiKey();
+    attempts++;
+
+    const response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const text = data?.choices?.[0]?.message?.content || '';
+      return text.trim();
+    }
+
+    // If 429 rate limit is hit, log a warning and retry immediately with the next key
+    if (response.status === 429 && attempts < maxAttempts) {
+      console.warn(`[Background] 429 Too Many Requests on key ${attempts}/${maxAttempts}. Trying next key...`);
+      continue;
+    }
+
     const errorText = await response.text();
     throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
   }
-
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content || '';
-  return text.trim();
 }
 
 function parseAnswer(deepseekOutput, choices) {
