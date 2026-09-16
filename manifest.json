@@ -9,8 +9,17 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*"
   ],
+  "icons": {
+    "16": "kahoothack_logo.png",
+    "48": "kahoothack_logo.png",
+    "128": "kahoothack_logo.png"
+  },
+  "action": {
+    "default_icon": "kahoothack_logo.png"
+  },
   "background": {
     "service_worker": "background.js"
   },
