@@ -1,14 +1,22 @@
-// background.js – OpenRouter API with DeepSeek vision model
-
-const API_KEYS = [
-  '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',
-  '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',
-  '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'
-];
+let cachedKeys = null;
 let currentKeyIndex = 0;
 
 const MODEL = 'deepseek/deepseek-v4-flash-vision-exp'; // latest vision model
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Asynchronously fetch and cache API keys from root keys.json file
+async function getApiKeys() {
+  if (cachedKeys) return cachedKeys;
+  try {
+    const response = await fetch(chrome.runtime.getURL('keys.json'));
+    const data = await response.json();
+    cachedKeys = data.API_KEYS || [];
+    return cachedKeys;
+  } catch (err) {
+    console.error('[Background] Failed to load keys.json:', err);
+    return [];
+  }
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'processQuestion') {
@@ -73,13 +81,14 @@ ${choiceList}
 Correct answer:`;
 }
 
-function getNextApiKey() {
-  const key = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-  return key;
-}
-
 async function callOpenRouter(prompt) {
+  const API_KEYS = await getApiKeys();
+  const totalKeys = API_KEYS.length;
+
+  if (totalKeys === 0) {
+    throw new Error('No API keys found. Please ensure keys.json exists and contains an API_KEYS array.');
+  }
+
   const payload = {
     model: MODEL,
     messages: [
@@ -88,41 +97,53 @@ async function callOpenRouter(prompt) {
         content: prompt,
       },
     ],
-    max_tokens: 50,
+    max_tokens: 256,
     temperature: 0.1,
   };
 
-  let attempts = 0;
-  const maxAttempts = API_KEYS.length;
+  let lastError = null;
 
-  while (attempts < maxAttempts) {
-    const apiKey = getNextApiKey();
-    attempts++;
+  // Try each key sequentially starting from currentKeyIndex
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const keyIndex = currentKeyIndex;
+    const apiKey = API_KEYS[keyIndex];
 
-    const response = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    // Increment index for future requests
+    currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
-    if (response.ok) {
+    try {
+      console.log(`[Background] Attempting request using key index ${keyIndex + 1}/${totalKeys}...`);
+
+      const response = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Status ${response.status}: ${errorText}`);
+      }
+
       const data = await response.json();
       const text = data?.choices?.[0]?.message?.content || '';
+
+      if (!text.trim()) {
+        throw new Error('API returned an empty response content.');
+      }
+
       return text.trim();
+    } catch (err) {
+      console.warn(`[Background] API key ${keyIndex + 1}/${totalKeys} failed: ${err.message}. Retrying with next key...`);
+      lastError = err;
     }
-
-    // If 429 rate limit is hit, log a warning and retry immediately with the next key
-    if (response.status === 429 && attempts < maxAttempts) {
-      console.warn(`[Background] 429 Too Many Requests on key ${attempts}/${maxAttempts}. Trying next key...`);
-      continue;
-    }
-
-    const errorText = await response.text();
-    throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
   }
+
+  // If all keys in array failed
+  throw new Error(`All ${totalKeys} API keys failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
 }
 
 function parseAnswer(deepseekOutput, choices) {
