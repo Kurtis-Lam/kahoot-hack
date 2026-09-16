@@ -1,7 +1,7 @@
 let cachedKeys = null;
 let currentKeyIndex = 0;
 
-const MODEL = 'deepseek/deepseek-v4-flash-vision-exp'; // latest vision model
+const MODEL = 'deepseek/deepseek-flash-latest'; // latest vision model
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // Asynchronously fetch and cache API keys from root keys.json file
