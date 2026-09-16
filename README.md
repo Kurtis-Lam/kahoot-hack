@@ -57,7 +57,7 @@ kahoot-hack/
 5. **Copy the key immediately.** It looks like this:
 
    ```
-   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
+   sk-or-v1-8a48b2412be81cc31933aa010a61fb0249064a81812442837aa8d607ea74e2e
    ```
 
    > 🔒 You will not be able to see it again — store it somewhere safe.
