@@ -206,4 +206,15 @@ This project is for **educational purposes only**. Using automated tools on Kaho
 
 ## 📜 License
 
-MIT — do whatever you want, just don't blame anyone else if it goes wrong.
+This application's source code is shared under the **PolyForm Noncommercial License 1.0.0**. 
+
+* **Personal & Educational Use:** Free to use, modify, and explore. You must give credit to the original author.
+* **Commercial Use:** If you intend to use this code to earn revenue, build a commercial product, or use it within a business, you **must purchase a commercial license**.
+
+For commercial licensing terms and pricing, please contact me at: `kurtislam100@gmail.com`
+
+---
+
+## 🙌 Acknowledgements
+
+Built with ❤️ by Kurtis.
