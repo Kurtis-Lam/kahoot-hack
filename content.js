@@ -1,4 +1,23 @@
-// content.js – simplified, no sign‑in, no limits, no icon
+// content.js – simplified, no sign‑in, no limits
+
+const TAG = '[ KAHOOT HACK ALERT ]';
+const lastLogAt = new Map();
+function emit(level, message) {
+    const now = Date.now();
+    const key = level + message;
+    if (now - (lastLogAt.get(key) || 0) < 1500) return; // drop identical repeats
+    lastLogAt.set(key, now);
+    console[level](`${TAG} ${message}`);
+}
+const log = {
+    info: (m) => { if (QGPT_IS_TOP_FRAME) emit('log', m); },   // sub-frames stay quiet
+    warn: (m) => emit('warn', m),
+    error: (m) => emit('error', m)
+};
+function shorten(text, max = 70) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
 
 (function injectPageHook() {
     try {
@@ -9,16 +28,14 @@
 
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL('scripts/injected.js');
-    script.onload = () => {
-        console.log('[Content] Injected script loaded');
-        script.remove();
-    };
+    script.onload = () => script.remove();
     (document.head || document.documentElement).appendChild(script);
 })();
 
 let currentQuestion = null;
 const QGPT_PANEL_ID = 'kahoothack-panel';
 const QGPT_STYLE_ID = 'kahoothack-panel-styles';
+const QGPT_LOGO_URL = chrome.runtime.getURL('kahoothack_logo.png');
 
 const qgptState = {
     mounted: false,
@@ -91,6 +108,15 @@ function injectPanelStyles() {
             color: #eee;
         }
         .qgpt-pill:hover { transform: translateY(-1px); border-color: rgba(218,112,214,0.5); }
+
+        .qgpt-logo {
+            width: 18px; height: 18px;
+            border-radius: 5px;
+            object-fit: cover;
+            flex-shrink: 0;
+            vertical-align: middle;
+        }
+        .qgpt-header .qgpt-title { display: flex; align-items: center; gap: 8px; }
 
         .qgpt-card {
             width: 240px;
@@ -249,11 +275,12 @@ function mountPanel() {
 
     root.innerHTML = `
         <div class="qgpt-pill" role="button" title="Expand kahoothack">
-            <span>⚡ kahoothack</span>
+            <img class="qgpt-logo" src="${QGPT_LOGO_URL}" alt="" draggable="false"/>
+            <span>kahoothack</span>
         </div>
         <div class="qgpt-card" role="region" aria-label="kahoothack panel">
             <div class="qgpt-header">
-                <span class="qgpt-title">⚡ kahoothack</span>
+                <span class="qgpt-title"><img class="qgpt-logo" src="${QGPT_LOGO_URL}" alt="" draggable="false"/>kahoothack</span>
                 <button type="button" class="qgpt-icon-btn" data-qgpt="collapse" title="Collapse" aria-label="Collapse kahoothack">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="pointer-events:none"><path d="M5 12h14"/></svg>
                 </button>
@@ -323,6 +350,7 @@ function mountPanel() {
         qgptState.settings.silentMode = tSilent.checked;
         chrome.storage.sync.set({ silentMode: tSilent.checked }).catch(() => {});
         if (tSilent.checked) {
+            log.info('Incognito mode ON – panel hidden. Type kahootHack.show() in the console to bring it back.');
             destroyPanel();
         } else {
             mountPanel();
@@ -341,11 +369,13 @@ function mountPanel() {
     qgptState.mounted = true;
     renderPanel();
     // Load saved settings
-    chrome.storage.sync.get(['highlightOption', 'autoClickOption', 'silentMode', 'answerDelay', 'kahoothackPanelCollapsed'], (data) => {
-        if (typeof data.kahoothackPanelCollapsed === 'boolean') {
-            qgptState.collapsed = data.kahoothackPanelCollapsed;
+    chrome.storage.local.get(['kahoothackPanelCollapsed'], (local) => {
+        if (local && typeof local.kahoothackPanelCollapsed === 'boolean') {
+            qgptState.collapsed = local.kahoothackPanelCollapsed;
             root.setAttribute('data-collapsed', qgptState.collapsed ? 'true' : 'false');
         }
+    });
+    chrome.storage.sync.get(['highlightOption', 'autoClickOption', 'silentMode', 'answerDelay'], (data) => {
         qgptState.settings.highlight = data.highlightOption !== false;
         qgptState.settings.autoClick = data.autoClickOption !== false;
         qgptState.settings.silentMode = !!data.silentMode;
@@ -397,7 +427,6 @@ function renderPanel() {
 }
 
 function updateStatus(message, forceShow = false) {
-    console.log('[Content] Status:', message);
     qgptState.status = message;
     qgptState.statusTone = deriveStatusTone(message);
 
@@ -472,22 +501,44 @@ function findAnswerElements() {
     for (const selector of selectors) {
         const elements = document.querySelectorAll(selector);
         if (elements.length >= 2) {
-            console.log('[Content] Found elements with selector:', selector, elements.length);
             return Array.from(elements);
         }
     }
     return [];
 }
 
+// Fallback for question images the game socket did not include: the biggest
+// picture on screen that is not part of an answer button or this extension's panel.
+function scrapeQuestionImageFromDom() {
+    try {
+        const answerEls = findAnswerElements();
+        let best = null;
+        let bestArea = 0;
+        document.querySelectorAll('img').forEach((img) => {
+            const src = img.currentSrc || img.src || '';
+            if (!/^https?:\/\//i.test(src)) return;
+            if (img.closest('#' + QGPT_PANEL_ID)) return;
+            if (answerEls.some((el) => el.contains(img))) return;
+            const rect = img.getBoundingClientRect();
+            const area = rect.width * rect.height;
+            if (rect.width < 80 || rect.height < 80 || area <= bestArea) return;
+            best = src;
+            bestArea = area;
+        });
+        return best;
+    } catch (_) {
+        return null;
+    }
+}
+
 // Listen for question events from injected script
 window.addEventListener('kahootQuestionParsed', (event) => {
-    console.log('[Content] Received question event:', event.detail);
     updateStatus('Question detected');
 
     const question = { ...(event.detail || {}) };
     if (!question || typeof question.questionIndex !== 'number') {
         if (!question || !question.title || !Array.isArray(question.choices)) {
-            console.error('[Content] Invalid question data:', question);
+            log.error('Received a question without a title or choices, ignoring it.');
             updateStatus('Invalid question data');
             return;
         }
@@ -498,14 +549,14 @@ window.addEventListener('kahootQuestionParsed', (event) => {
         if (scraped) {
             question.title = scraped.title;
             question.choices = scraped.choices;
-            console.log('[Content] Scraped question from DOM:', scraped.title, scraped.choices.length);
+            log.info(`Read the question from the page: "${shorten(scraped.title)}" (${scraped.choices.length} choices).`);
         } else {
             setTimeout(() => {
                 if (lastSentQuestionHash && lastQuestionPayload && lastQuestionPayload.questionIndex === question.questionIndex && lastQuestionPayload.title) return;
                 const late = scrapeQuestionFromDom();
                 if (!late || typeof question.questionIndex !== 'number') return;
                 const enriched = { ...question, title: late.title, choices: late.choices };
-                console.log('[Content] Late DOM scrape:', late.title);
+                log.info(`Read the question from the page (late): "${shorten(late.title)}".`);
                 if (!(lastSentQuestionIndex === question.questionIndex && lastSentHadText)) {
                     lastSentHadText = false;
                     window.dispatchEvent(new CustomEvent('kahootQuestionParsed', { detail: enriched }));
@@ -515,6 +566,13 @@ window.addEventListener('kahootQuestionParsed', (event) => {
     }
 
     const hasText = !!(question.title && Array.isArray(question.choices) && question.choices.length);
+    if (hasText && !question.image) {
+        const domImage = scrapeQuestionImageFromDom();
+        if (domImage) {
+            question.image = domImage;
+            log.info('Found an image on the question in the page; it will be sent to the AI.');
+        }
+    }
     const qIndex = typeof question.questionIndex === 'number' ? question.questionIndex : null;
     const forceResend = !!question._reconnectAnswer && !(hasText && qIndex != null && qIndex === lastSentQuestionIndex && lastSentHadText);
 
@@ -540,21 +598,15 @@ window.addEventListener('kahootQuestionParsed', (event) => {
             question: question
         }, (response) => {
             if (chrome.runtime.lastError) {
-                console.error('[Content] Error sending message:', chrome.runtime.lastError);
+                log.error(`Could not reach the extension background: ${chrome.runtime.lastError.message}`);
                 updateStatus('Error: ' + chrome.runtime.lastError.message);
             } else {
-                console.log('[Content] Message sent successfully:', response);
+                if (response && response.error) log.error(`Answer lookup failed: ${shorten(response.error, 200)}`);
                 updateStatus(hasText ? 'Question sent' : 'Waiting for question text...');
             }
         });
     } else {
-        console.log('[Content] Duplicate question detected, not sending again.', {
-            qIndex,
-            hasText,
-            lastSentQuestionIndex,
-            lastSentHadText
-        });
-        lastQuestionPayload = question;
+        lastQuestionPayload = question; // duplicate of a question already sent – nothing to log
     }
 
     if (hasText) {
@@ -567,7 +619,6 @@ window.addEventListener('kahootQuestionParsed', (event) => {
 
 // Handle messages from background
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('[Content] Received message:', request);
     if (request.action === "highlightAnswer") {
         updateStatus('Highlighting answer...');
         highlightAnswer(request.answer, {
@@ -591,6 +642,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ status: 'running', currentQuestion, timestamp: new Date().toISOString() });
     }
     return true;
+});
+
+// ---------- Console commands: kahootHack.show() / kahootHack.hide() ----------
+function showPanelNow() {
+    qgptState.settings.silentMode = false;
+    chrome.storage.sync.set({ silentMode: false }, () => {
+        whenBodyReady(() => {
+            mountPanel();
+            renderPanel();
+            log.info('Incognito mode OFF – panel restored.');
+        });
+    });
+}
+
+function hidePanelNow() {
+    qgptState.settings.silentMode = true;
+    chrome.storage.sync.set({ silentMode: true }, () => {
+        destroyPanel();
+        log.info('Incognito mode ON – panel hidden. Type kahootHack.show() to bring it back.');
+    });
+}
+
+window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.source !== 'kahoothack' || event.source !== window) return;
+    if (data.type === 'showPanel') showPanelNow();
+    else if (data.type === 'hidePanel') hidePanelNow();
 });
 
 // ---------- Highlight & Auto‑click logic (unchanged) ----------
@@ -617,11 +695,10 @@ function dispatchAutoClick(choiceIndex, questionIndex) {
     const choice = Number(choiceIndex);
     const qIndex = typeof questionIndex === 'number' ? questionIndex : undefined;
     if (Number.isNaN(choice) || choice < 0) {
-        console.warn('[Content] Auto-click aborted — invalid choiceIndex', choiceIndex);
+        log.warn(`Auto-click skipped – invalid option (${choiceIndex}).`);
         return;
     }
     const msg = { source: 'kahoothack', type: 'autoClickAnswer', choice, questionIndex: qIndex, t: Date.now() };
-    console.log('[Content] Auto-click by index:', choice, 'questionIndex:', qIndex);
 
     const targets = new Set([window]);
     try { if (window.parent) targets.add(window.parent); } catch (_) {}
@@ -656,9 +733,7 @@ function autoClickByIndex(choiceIndex, answerElements, options) {
 }
 
 function highlightAnswer(answer, options = {}, pollTries = 40, choiceIndex) {
-    console.log('[Content] Highlighting answer:', answer, 'choiceIndex:', choiceIndex, 'options:', options);
     const answerElements = findAnswerElements();
-    console.log('[Content] Found answer elements:', answerElements.length);
 
     if (typeof choiceIndex === 'number') {
         const byIndex = answerElements[choiceIndex] || null;
@@ -673,7 +748,7 @@ function highlightAnswer(answer, options = {}, pollTries = 40, choiceIndex) {
         if (pollTries > 0) {
             if (pollTries <= 5 && options.autoClick !== false && !options._wsSubmitted) {
                 options._wsSubmitted = true;
-                console.log('[Content] DOM buttons missing — WS-only click fallback');
+                log.info('Answer buttons are not on screen yet; sending the answer straight to the game instead.');
                 autoClickByIndex(choiceIndex, answerElements, options);
             }
             setTimeout(() => highlightAnswer(answer, options, pollTries - 1, choiceIndex), 200);
@@ -691,12 +766,12 @@ function highlightAnswer(answer, options = {}, pollTries = 40, choiceIndex) {
         return;
     }
     if (answerElements.length === 0) {
-        console.log('[Content] No matching answer element found (after polling)');
+        log.warn('No answer buttons appeared on the page.');
         return;
     }
 
     const answerLower = (answer || '').toLowerCase().trim();
-    if (!answerLower) { console.log('[Content] No answer text and no choiceIndex'); return; }
+    if (!answerLower) { log.warn('The AI gave no answer text and no option number.'); return; }
 
     let correctElement = null;
     let bestMatch = null;
@@ -721,20 +796,18 @@ function highlightAnswer(answer, options = {}, pollTries = 40, choiceIndex) {
             score = (commonWords.length / Math.max(words1.length, words2.length)) * 40;
         }
         if (score > bestMatchScore) { bestMatchScore = score; bestMatch = element; }
-        if (score === 100) { correctElement = element; console.log('[Content] Found exact match:', text); }
+        if (score === 100) correctElement = element;
     });
 
     if (!correctElement && bestMatch && bestMatchScore >= 60) {
         correctElement = bestMatch;
-        console.log('[Content] Using best match with score:', bestMatchScore);
     }
 
     if (correctElement) {
-        console.log('[Content] Found matching answer element');
         if (options.highlight !== false) applyHighlightStyles(correctElement);
         if (options.autoClick !== false) waitAndAutoClick(correctElement, answerElements, options);
     } else {
-        console.log('[Content] No matching answer element found');
+        log.warn(`Could not match the AI's answer ("${shorten(answer)}") to any button on the page.`);
     }
 }
 
@@ -750,7 +823,7 @@ function simulateRealClick(element) {
         if (typeof element.click === 'function') element.click();
         return true;
     } catch (err) {
-        console.warn('[Content] simulateRealClick failed:', err);
+        log.warn(`Simulated click failed (${err.message}); trying a plain click.`);
         try { element.click(); return true; } catch (_) { return false; }
     }
 }
@@ -767,12 +840,12 @@ function waitAndAutoClick(element, answerElements, options, retries = 20) {
         });
     }
     if (typeof choiceIndex !== 'number' || choiceIndex < 0) {
-        console.warn('[Content] AutoClick: could not resolve choiceIndex');
+        log.warn('Auto-click skipped – could not work out which option to press.');
         return;
     }
     const fire = () => {
         const clicked = simulateRealClick(element);
-        console.log('[Content] DOM click', clicked ? 'ok' : 'failed', 'choice', choiceIndex);
+        log.info(`Clicked option ${String.fromCharCode(65 + choiceIndex)} on the page${clicked ? '' : ' (click failed, using the game connection)'}.`);
         dispatchAutoClick(choiceIndex, options.questionIndex);
     };
     if (!element.disabled && element.offsetParent !== null) {
@@ -782,7 +855,7 @@ function waitAndAutoClick(element, answerElements, options, retries = 20) {
     } else if (retries > 0) {
         setTimeout(() => waitAndAutoClick(element, answerElements, options, retries - 1), 250);
     } else {
-        console.warn('[Content] AutoClick: Button was never enabled — WS fallback');
+        log.warn('The answer button never became clickable; sending the answer straight to the game instead.');
         dispatchAutoClick(choiceIndex, options.questionIndex);
     }
 }
