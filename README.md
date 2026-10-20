@@ -33,10 +33,6 @@ kahoot-hack/
 ├── content.js
 ├── kahoothack_logo.png
 ├── keys.json              ← you create this
-├── icons/
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
 └── scripts/
     └── injected.js
 ```
@@ -229,7 +225,7 @@ Every line the extension prints starts with `[ KAHOOT HACK ALERT ]` and is a pla
 - Images are only attached when Kahoot includes them in the question data (host setting: *show questions on players' devices*) or when the picture is visible on the page.
 
 **Toolbar icon or panel logo is the default puzzle piece**
-- Make sure `kahoothack_logo.png` and the `icons/` folder are next to `manifest.json`, and that they are real PNG files, then refresh the extension on `chrome://extensions`.
+- Make sure `kahoothack_logo.png` is next to `manifest.json`, and that it is a real PNG file, then refresh the extension on `chrome://extensions`.
 
 **Panel doesn't appear**
 - Make sure the toggle is ON on `chrome://extensions`.
