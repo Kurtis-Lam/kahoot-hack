@@ -1,12 +1,36 @@
 (() => {
 // Content script can inject this more than once (all_frames / re-inject). Guard before any const.
-if (window.__kahoothackInjected) {
-    console.log('[AutoClick] already injected — skip');
-    return;
-}
+if (window.__kahoothackInjected) return;
 window.__kahoothackInjected = true;
 
-console.log("[Kahoot AutoClick] Inject started");
+const TAG = '[ KAHOOT HACK ALERT ]';
+const IS_TOP_FRAME = (() => {
+    try { return window.top === window.self; } catch (_) { return false; }
+})();
+
+// ---------- Logging (human readable, de-duplicated, quiet in sub-frames) ----------
+const lastLogAt = new Map();
+function emit(level, message, force) {
+    // Sub-frames only speak up if they actually hold the game connection.
+    if (!force && !IS_TOP_FRAME && !window.__kahootWS) return;
+    const now = Date.now();
+    const key = level + message;
+    if (now - (lastLogAt.get(key) || 0) < 1500) return; // drop identical repeats
+    lastLogAt.set(key, now);
+    console[level](`${TAG} ${message}`);
+}
+const log = {
+    info: (m) => emit('log', m),
+    warn: (m) => emit('warn', m),
+    error: (m) => emit('error', m, true)
+};
+
+function shorten(text, max = 70) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
+const humanQ = (idx) => (typeof idx === 'number' ? `#${idx + 1}` : '(unknown number)');
+const letterOf = (idx) => (typeof idx === 'number' && idx >= 0 ? String.fromCharCode(65 + idx) : '?');
 
 const OldWebSocket = window.WebSocket;
 window.__kahootWS = null;
@@ -16,6 +40,55 @@ window.kahootQuestionIndex = 0;
 window.kahootMessageId = 0;
 window.kahootDataId = 45; // Fixed value for answer submissions based on Burp Suite analysis
 
+// ---------- Console commands (type these in DevTools → Console) ----------
+if (IS_TOP_FRAME) {
+    const send = (type) => { try { window.postMessage({ source: 'kahoothack', type }, '*'); } catch (_) {} };
+    const api = {
+        show() { send('showPanel'); return 'Panel restored.'; },
+        hide() { send('hidePanel'); return 'Panel hidden.'; },
+        help() {
+            const text =
+                `${TAG} Console commands:\n` +
+                '  kahootHack.show()  → bring the panel back (turns Incognito mode off)\n' +
+                '  kahootHack.hide()  → hide the panel (turns Incognito mode on)\n' +
+                '  kahootHack.help()  → show this list';
+            console.log(text);
+            return 'ok';
+        }
+    };
+    try {
+        Object.defineProperty(window, 'kahootHack', { value: Object.freeze(api), enumerable: false, configurable: true });
+    } catch (_) { window.kahootHack = api; }
+    log.info('Ready. Type kahootHack.help() in the console to see the commands.');
+}
+
+// ---------- Image helpers ----------
+function pickImageUrl(value) {
+    if (!value) return null;
+    if (typeof value === 'string') return /^(https?:)?\/\//i.test(value.trim()) ? value.trim() : null;
+    if (typeof value === 'object') return pickImageUrl(value.url || value.src || value.image || null);
+    return null;
+}
+
+function extractQuestionImage(content) {
+    const direct = pickImageUrl(content.image) || pickImageUrl(content.imageUrl);
+    if (direct) return direct;
+    if (Array.isArray(content.media)) {
+        for (const m of content.media) {
+            if (m && (!m.type || String(m.type).toLowerCase() === 'image')) {
+                const url = pickImageUrl(m.image || m.url || m.src);
+                if (url) return url;
+            }
+        }
+    }
+    return null;
+}
+
+function extractChoiceImage(choice) {
+    if (!choice || typeof choice !== 'object') return null;
+    return pickImageUrl(choice.image) || pickImageUrl(choice.imageUrl) || pickImageUrl(choice.media);
+}
+
 function handleParsedContent(content, dataId) {
     if (!content || typeof content !== 'object') return;
 
@@ -23,6 +96,7 @@ function handleParsedContent(content, dataId) {
     if (dataId === 9) {
         clearExpectingReconnect();
         window.__kahootSoftReconnect = false;
+        log.info('The game has started.');
     }
 
     const questionIndex = typeof content.questionIndex === 'number'
@@ -40,12 +114,19 @@ function handleParsedContent(content, dataId) {
         }
         const question = {
             title: content.title,
-            choices: content.choices.map(c => (typeof c === 'string' ? c : c.answer)),
+            choices: content.choices.map(c => (typeof c === 'string' ? c : (c && c.answer) || '')),
+            image: extractQuestionImage(content),
+            choiceImages: content.choices.map(extractChoiceImage),
             questionIndex: questionIndex != null ? questionIndex : window.kahootQuestionIndex,
             _fromQuestionStart: true
         };
         window.kahootQuestionIndex = question.questionIndex;
-        console.log("[AutoClick] New question detected:", question);
+        const imageNote = question.image ? ', has an image' : '';
+        const choiceImageCount = question.choiceImages.filter(Boolean).length;
+        log.info(
+            `Question ${humanQ(question.questionIndex)} received: "${shorten(question.title)}" ` +
+            `(${question.choices.length} choices${imageNote}${choiceImageCount ? `, ${choiceImageCount} choice image(s)` : ''}).`
+        );
         window.dispatchEvent(new CustomEvent("kahootQuestionParsed", { detail: question }));
         return;
     }
@@ -55,7 +136,7 @@ function handleParsedContent(content, dataId) {
     if (questionIndex != null && dataId === 1) {
         window.kahootQuestionIndex = questionIndex;
         persistLastQuestionIndex(questionIndex);
-        console.log("[AutoClick] GetReady for questionIndex:", questionIndex);
+        log.info(`Get ready – question ${humanQ(questionIndex)} is about to start.`);
         if (window.__kahootSoftReconnect || isExpectingReconnect()) {
             scheduleGetReadyFallback(questionIndex);
         }
@@ -73,7 +154,7 @@ function handleParsedContent(content, dataId) {
         }
         window.kahootQuestionIndex = questionIndex;
         persistLastQuestionIndex(questionIndex);
-        console.log("[AutoClick] QuestionStart (waiting for full payload):", questionIndex);
+        log.info(`Question ${humanQ(questionIndex)} started, waiting for its text…`);
 
         window.__kahootPendingFullQuestion = questionIndex;
         if (window.__kahootQuestionStartTimer) {
@@ -89,7 +170,7 @@ function handleParsedContent(content, dataId) {
                 questionIndex,
                 _fromQuestionStart: true
             };
-            console.log("[AutoClick] QuestionStart fallback (index only):", question);
+            log.info(`No question text arrived for ${humanQ(questionIndex)}; reading it from the page instead.`);
             window.dispatchEvent(new CustomEvent("kahootQuestionParsed", { detail: question }));
         }, 200);
         return;
@@ -134,8 +215,7 @@ function emitAnswerForQuestionIndex(questionIndex, reason) {
     if (typeof questionIndex !== 'number') return;
     const now = Date.now();
     if (window.__kahootLastEmitIndex === questionIndex && now - (window.__kahootLastEmitAt || 0) < 2000) {
-        console.log('[AutoClick] Skip duplicate emit for questionIndex', questionIndex);
-        return;
+        return; // duplicate, stay quiet
     }
     window.__kahootLastEmitIndex = questionIndex;
     window.__kahootLastEmitAt = now;
@@ -150,7 +230,7 @@ function emitAnswerForQuestionIndex(questionIndex, reason) {
         _reconnectAnswer: softReconnect,
         _fromQuestionStart: true
     };
-    console.log('[AutoClick] Emitting answer for questionIndex', questionIndex, reason, softReconnect ? '(reconnect)' : '');
+    log.info(`Answering question ${humanQ(questionIndex)} (${reason}${softReconnect ? ', after reconnect' : ''}).`);
     window.dispatchEvent(new CustomEvent('kahootQuestionParsed', { detail: question }));
 }
 
@@ -170,7 +250,7 @@ function scheduleGetReadyFallback(questionIndex) {
         if (window.__kahootPendingGetReady !== questionIndex) return;
         window.__kahootPendingGetReady = null;
         window.__kahootGetReadyTimer = null;
-        emitAnswerForQuestionIndex(questionIndex, 'GetReady fallback');
+        emitAnswerForQuestionIndex(questionIndex, 'rejoined mid-question');
     }, 500);
 }
 
@@ -187,7 +267,8 @@ try {
 
 // Hook into the WebSocket constructor
 window.WebSocket = function (url, protocols) {
-    console.log("[AutoClick] WebSocket constructor called with URL:", url);
+    let host = String(url);
+    try { host = new URL(url).host; } catch (_) { /* keep raw */ }
 
     let ws;
     if (protocols) {
@@ -196,6 +277,7 @@ window.WebSocket = function (url, protocols) {
         ws = new OldWebSocket(url);
     }
     window.__kahootWS = ws;
+    log.info(`Game connection opening (${host}).`);
 
     ws.addEventListener("message", function (event) {
         try {
@@ -207,14 +289,14 @@ window.WebSocket = function (url, protocols) {
                     const prevClient = window.kahootClientId;
                     window.kahootClientId = item.clientId;
                     if (prevClient && prevClient !== item.clientId) {
-                        console.log("[AutoClick] clientId rotated:", item.clientId);
+                        log.info('Session refreshed (new client ID).');
                         // New CometD session after socket swap — resend pending answer with new clientId
                         if (window.__kahoothackPendingAnswer) {
                             window.__kahoothackAnsweredQ = null;
                             schedulePendingAnswerResend();
                         }
                     } else if (!prevClient) {
-                        console.log("[AutoClick] clientId found:", window.kahootClientId);
+                        log.info('Joined the game session (client ID received).');
                         if (window.__kahoothackAwaitingResend) {
                             window.__kahoothackAwaitingResend = false;
                             schedulePendingAnswerResend();
@@ -238,12 +320,12 @@ window.WebSocket = function (url, protocols) {
                             window.__kahoothackAnsweredQ = null;
                             window.__kahoothackPendingAnswer = null;
                             try { sessionStorage.removeItem('kahoothack_quiz_meta'); } catch (_) { /* ignore */ }
-                            console.log("[AutoClick] New game detected, gameid:", incomingId);
+                            log.info(`A new game was detected (game ID ${incomingId}).`);
                             window.dispatchEvent(new CustomEvent("kahootGameReset", {
                                 detail: { gameid: incomingId, soft: false }
                             }));
                         } else if (isSoftReconnect) {
-                            console.log("[AutoClick] Reconnected to gameid:", incomingId);
+                            log.info(`Reconnected to game ${incomingId}.`);
                             window.__kahootSoftReconnect = true;
                             window.__kahoothackAnsweredQ = null;
                             window.dispatchEvent(new CustomEvent("kahootGameReset", {
@@ -277,7 +359,7 @@ window.WebSocket = function (url, protocols) {
                         const content = typeof raw === 'string' ? JSON.parse(raw) : raw;
                         handleParsedContent(content, item.data.id);
                     } catch (e) {
-                        console.log("[AutoClick] Error parsing content:", e);
+                        log.warn(`Could not read a game message (${e.message}).`);
                     }
                 }
 
@@ -289,12 +371,12 @@ window.WebSocket = function (url, protocols) {
                 }
             });
         } catch (e) {
-            console.warn("[AutoClick] Error parsing WS message:", e);
+            // Non-JSON frames (pings, binary) are normal; nothing worth printing.
         }
     });
 
     ws.addEventListener("open", () => {
-        console.log("[AutoClick] WebSocket connection established");
+        log.info('Game connection established.');
         if (window.__kahoothackPendingAnswer) {
             window.__kahoothackAwaitingResend = true;
             window.__kahoothackAnsweredQ = null;
@@ -304,7 +386,7 @@ window.WebSocket = function (url, protocols) {
     });
 
     ws.addEventListener("close", () => {
-        console.log("[AutoClick] WebSocket connection closed");
+        log.warn('Game connection closed. Your last answer will be resent after reconnecting.');
         setExpectingReconnect();
         try {
             const prev = JSON.parse(sessionStorage.getItem('kahoothack_quiz_meta') || '{}');
@@ -325,8 +407,8 @@ window.WebSocket = function (url, protocols) {
         clearGetReadyFallback();
     });
 
-    ws.addEventListener("error", (error) => {
-        console.error("[AutoClick] WebSocket error:", error);
+    ws.addEventListener("error", () => {
+        log.error('Game connection error.');
     });
 
     return ws;
@@ -344,37 +426,21 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
         : window.kahootQuestionIndex;
     const choice = Number(answerChoice);
 
-    console.log("[AutoClick] Current state:", {
-        gameid,
-        clientId,
-        dataId: window.kahootDataId,
-        questionIndex,
-        explicitQuestionIndex,
-        choice,
-        messageId: window.kahootMessageId,
-        websocketReady: window.__kahootWS?.readyState === 1
-    });
-
     if (!gameid || !clientId || !window.__kahootWS) {
-        console.warn("[AutoClick] Missing data (gameid, clientId, or WebSocket)", {
-            gameid: !!gameid,
-            clientId: !!clientId,
-            dataId: window.kahootDataId,
-            websocket: !!window.__kahootWS
-        });
+        const missing = [!gameid && 'game ID', !clientId && 'client ID', !window.__kahootWS && 'connection'].filter(Boolean).join(', ');
+        log.warn(`Cannot send the answer yet – missing: ${missing}.`);
         return;
     }
 
     if (typeof questionIndex !== 'number' || Number.isNaN(choice) || choice < 0) {
-        console.warn("[AutoClick] Missing questionIndex/choice, not sending", { questionIndex, choice });
+        log.warn(`Cannot send the answer – unknown question number or option (question ${questionIndex}, option ${answerChoice}).`);
         return;
     }
 
     // One WS submit per question (prevents multi-frame postMessage spam)
     if (window.__kahoothackAnsweredQ === questionIndex
         && Date.now() - (window.__kahoothackAnsweredAt || 0) < 8000) {
-        console.log('[AutoClick] Already submitted for questionIndex', questionIndex);
-        return;
+        return; // already answered, stay quiet
     }
 
     window.kahootQuestionIndex = questionIndex;
@@ -408,15 +474,9 @@ window.sendAutoClickMessage = function (answerChoice, explicitQuestionIndex) {
             gameid,
             at: Date.now()
         };
-        console.log("[AutoClick] Answer sent:", {
-            gameid,
-            messageId: window.kahootMessageId,
-            dataId: window.kahootDataId,
-            questionIndex,
-            choice
-        });
+        log.info(`Answer sent for question ${humanQ(questionIndex)}: option ${letterOf(choice)}.`);
     } else {
-        console.error("[AutoClick] WebSocket not open.");
+        log.error('Game connection is not open yet; the answer will be sent once it reconnects.');
         window.__kahoothackPendingAnswer = {
             choice,
             questionIndex,
@@ -450,14 +510,14 @@ function schedulePendingAnswerResend() {
             window.__kahoothackAwaitingResend = false;
             return;
         }
-        console.log('[AutoClick] Resending answer after reconnect', pending, 'clientId', window.kahootClientId);
         pending.resendCount = (pending.resendCount || 0) + 1;
         if (pending.resendCount > 2) {
-            console.log('[AutoClick] Giving up resend after', pending.resendCount, 'tries');
+            log.warn(`Gave up resending the answer for question ${humanQ(pending.questionIndex)}. Rejoin the game if it was not counted.`);
             window.__kahoothackPendingAnswer = null;
             window.__kahoothackAwaitingResend = false;
             return;
         }
+        log.info(`Resending the answer for question ${humanQ(pending.questionIndex)} after reconnecting (attempt ${pending.resendCount} of 2).`);
         window.__kahoothackAnsweredQ = null;
         window.__kahoothackAwaitingResend = false;
         window.sendAutoClickMessage(pending.choice, pending.questionIndex);
@@ -478,21 +538,18 @@ window.addEventListener("autoClickAnswer", function (event) {
         choice = detail;
     }
 
-    console.log("[AutoClick] Click triggered with choice:", choice, "questionIndex:", questionIndex);
     window.sendAutoClickMessage(choice, questionIndex);
 });
 
 function handlekahoothackPageMessage(data) {
     if (!data || data.source !== 'kahoothack') return false;
     if (data.type === 'autoClickAnswer') {
-        console.log('[AutoClick] Bridged click:', data.choice, 'q', data.questionIndex);
         window.sendAutoClickMessage(data.choice, data.questionIndex);
         return true;
     }
     if (data.type === 'clearAnsweredQuestion') {
         if (typeof data.questionIndex === 'number' && window.__kahoothackAnsweredQ === data.questionIndex) {
             window.__kahoothackAnsweredQ = null;
-            console.log('[AutoClick] Cleared answered lock for questionIndex', data.questionIndex);
         }
         return true;
     }
@@ -508,13 +565,13 @@ function handlekahoothackPageMessage(data) {
         if (typeof data.questionIndex === 'number') idx = data.questionIndex;
         if (typeof idx === 'number') {
             window.__kahootSoftReconnect = true;
-            emitAnswerForQuestionIndex(idx, 'content requested current question');
+            emitAnswerForQuestionIndex(idx, 'requested by the page');
         } else {
-            console.log('[AutoClick] answerCurrentQuestion: no questionIndex known yet');
+            log.info('No question number is known yet, so there is nothing to answer.');
         }
         return true;
     }
-    return false;
+    return false; // showPanel / hidePanel are handled by the content script
 }
 
 // Content-script → page bridge (CustomEvent does not cross isolated worlds)
@@ -545,12 +602,12 @@ window.addEventListener('message', function (event) {
                 try {
                     handlekahoothackPageMessage(JSON.parse(raw));
                 } catch (e) {
-                    console.warn('[AutoClick] bridge parse error', e);
+                    log.warn(`Could not read a click request (${e.message}).`);
                 }
             });
             obs.observe(bridge, { attributes: true, attributeFilter: ['data-payload'] });
         } catch (e) {
-            console.warn('[AutoClick] bridge watch failed', e);
+            log.warn(`Click bridge could not start (${e.message}).`);
         }
     };
 
